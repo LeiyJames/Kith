@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import kithLogo from '../../assets/kithlogo.png';
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { 
@@ -52,9 +53,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       {/* 1. DESKTOP SIDEBAR NAVIGATION */}
       <aside className="hidden md:flex flex-col w-64 fixed inset-y-0 left-0 bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800/80 z-20">
         <div className="h-16 flex items-center px-6 border-b border-slate-50 dark:border-slate-800/50 cursor-pointer" onClick={() => navigate('/feed')}>
-          <div className="w-8 h-8 rounded-lg bg-brand-blue-500 flex items-center justify-center text-white font-extrabold text-lg mr-2.5 shadow-md shadow-brand-blue-500/20">
-            K
-          </div>
+          <img src={kithLogo} alt="Kith Logo" className="w-8 h-8 object-contain mr-2.5" />
           <span className="text-xl font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent">
             Kith
           </span>
@@ -192,9 +191,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         {/* TOP BAR HEADER */}
         <header className="sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800/60 h-16 flex items-center justify-between px-4 md:px-8 z-10">
           <div className="flex items-center md:hidden">
-            <div className="w-7 h-7 rounded bg-brand-blue-500 flex items-center justify-center text-white font-extrabold text-sm mr-2 shadow">
-              K
-            </div>
+            <img src={kithLogo} alt="Kith Logo" className="w-7 h-7 object-contain mr-2" />
             <span className="text-lg font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent cursor-pointer" onClick={() => navigate('/feed')}>
               Kith
             </span>

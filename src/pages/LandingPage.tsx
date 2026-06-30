@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
+import kithLogo from '../assets/kithlogo.png';
 import { 
   Heart, Gift, Users, Award, ShieldCheck, ArrowRight, 
   ChevronRight, Smile, MapPin, AlertTriangle, Play 
@@ -31,9 +32,7 @@ export const LandingPage: React.FC = () => {
       {/* 1. Header logo */}
       <header className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-lg bg-brand-blue-500 flex items-center justify-center text-white font-extrabold text-lg mr-2 shadow-md">
-            K
-          </div>
+          <img src={kithLogo} alt="Kith Logo" className="w-8 h-8 object-contain mr-2" />
           <span className="text-xl font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent">
             Kith
           </span>
@@ -210,9 +209,7 @@ export const LandingPage: React.FC = () => {
         <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 sm:grid-cols-3 gap-8">
           <div className="space-y-3">
             <div className="flex items-center text-white">
-              <div className="w-6 h-6 rounded bg-brand-blue-500 flex items-center justify-center text-white font-extrabold text-sm mr-2 shadow">
-                K
-              </div>
+              <img src={kithLogo} alt="Kith Logo" className="w-6 h-6 object-contain mr-2" />
               <span className="text-base font-bold font-display">Kith</span>
             </div>
             <p className="leading-relaxed opacity-85">
