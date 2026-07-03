@@ -22,7 +22,7 @@ export const UserProfile: React.FC = () => {
   }
 
   // Get saved posts list
-  const savedOpportunities = posts.filter(p => currentUser.savedPosts.includes(p.id));
+  const savedOpportunities = posts.filter(p => currentUser.savedPosts?.includes(p.id) || false);
 
   // Calendar simulator: June 2026 dates (highlight 4, 12, 20, 26)
   const helpedDates = [4, 12, 20, 26];

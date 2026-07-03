@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import kithLogo from '../assets/kithlogo.png';
+import { mockDb } from '../services/mockDb';
 import { 
   Heart, Gift, Users, Award, ShieldCheck, ArrowRight, 
   ChevronRight, Smile, MapPin, AlertTriangle, Play 
@@ -11,12 +12,41 @@ import {
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
+  const [stats, setStats] = useState({
+    deedsCompleted: '...',
+    activeVolunteers: '...',
+    donatedItems: '...',
+    ngoPartners: '...'
+  });
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const data = await mockDb.getPlatformStats();
+        setStats({
+          deedsCompleted: data.deedsCompleted.toLocaleString(),
+          activeVolunteers: data.activeVolunteers.toLocaleString(),
+          donatedItems: data.donatedItems.toLocaleString(),
+          ngoPartners: data.ngoPartners.toLocaleString()
+        });
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+        setStats({
+          deedsCompleted: '3,462',
+          activeVolunteers: '2',
+          donatedItems: '53',
+          ngoPartners: '2'
+        });
+      }
+    };
+    loadStats();
+  }, []);
 
   const statistics = [
-    { label: 'Deeds Completed', count: '14,820', icon: Heart, color: 'text-red-500 bg-red-50/20' },
-    { label: 'Active Volunteers', count: '2,450', icon: Users, color: 'text-brand-green-500 bg-brand-green-50/20' },
-    { label: 'Donated Items', count: '8,900', icon: Gift, color: 'text-brand-amber-500 bg-brand-amber-50/20' },
-    { label: 'NGO Partners', count: '124', icon: Award, color: 'text-brand-blue-500 bg-brand-blue-50/20' },
+    { label: 'Deeds Completed', count: stats.deedsCompleted, icon: Heart, color: 'text-red-500 bg-red-50/20' },
+    { label: 'Active Volunteers', count: stats.activeVolunteers, icon: Users, color: 'text-brand-green-500 bg-brand-green-50/20' },
+    { label: 'Donated Items', count: stats.donatedItems, icon: Gift, color: 'text-brand-amber-500 bg-brand-amber-50/20' },
+    { label: 'Kith Creators', count: stats.ngoPartners, icon: Award, color: 'text-brand-blue-500 bg-brand-blue-50/20' },
   ];
 
   const partners = [
@@ -32,10 +62,7 @@ export const LandingPage: React.FC = () => {
       {/* 1. Header logo */}
       <header className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
         <div className="flex items-center">
-          <img src={kithLogo} alt="Kith Logo" className="w-8 h-8 object-contain mr-2" />
-          <span className="text-xl font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent">
-            Kith
-          </span>
+          <img src={kithLogo} alt="Logo" className="w-12 h-12 object-contain" />
         </div>
         <Button variant="outline" size="sm" onClick={() => navigate('/auth')} className="font-semibold bg-white dark:bg-slate-900 border-slate-200">
           Sign In
@@ -209,8 +236,7 @@ export const LandingPage: React.FC = () => {
         <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 sm:grid-cols-3 gap-8">
           <div className="space-y-3">
             <div className="flex items-center text-white">
-              <img src={kithLogo} alt="Kith Logo" className="w-6 h-6 object-contain mr-2" />
-              <span className="text-base font-bold font-display">Kith</span>
+              <img src={kithLogo} alt="Logo" className="w-10 h-10 object-contain" />
             </div>
             <p className="leading-relaxed opacity-85">
               Connecting local community members for donations, volunteering, and mutual support.
@@ -229,7 +255,7 @@ export const LandingPage: React.FC = () => {
           <div className="space-y-1.5 text-left opacity-85">
             <h4 className="font-bold text-white text-xs">Platform Policy</h4>
             <p>100% free of charge. No advertising, no monetization of private data. Dedicated to local neighborhoods.</p>
-            <p className="text-[10px] text-slate-500 pt-2">© 2026 Kith. All rights reserved.</p>
+            <p className="text-[10px] text-slate-500 pt-2">© 2026. All rights reserved.</p>
           </div>
         </div>
       </footer>

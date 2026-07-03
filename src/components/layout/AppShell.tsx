@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { 
@@ -13,17 +13,34 @@ import kithLogo from '../../assets/kithlogo.png';
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { 
     currentUser, notifications, unreadCount, logoutUser, 
-    theme, toggleTheme, readNotification, readAllNotifications 
+    theme, toggleTheme, readNotification, readAllNotifications,
+    loading, showToast
   } = useApp();
   
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Global Auth Guard: Redirect to landing page on logout/null session for protected routes only
+  useEffect(() => {
+    const protectedRoutes = ['/chat', '/create-post', '/settings', '/profile', '/org-dashboard', '/admin'];
+    if (!loading && !currentUser && protectedRoutes.includes(location.pathname)) {
+      navigate('/landing');
+    }
+  }, [currentUser, loading, location.pathname, navigate]);
+
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
 
   const handleNav = (path: string) => {
+    const protectedRoutes = ['/chat', '/create-post', '/settings', '/profile', '/org-dashboard', '/admin'];
+    if (!currentUser && protectedRoutes.includes(path)) {
+      showToast('Please sign in to access this feature.', 'warning');
+      setIsMobileMenuOpen(false);
+      return;
+    }
     navigate(path);
     setIsMobileMenuOpen(false);
   };
@@ -40,23 +57,50 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   ];
 
   const orgItems = [
-    { name: 'Org Dashboard', path: '/org-dashboard', icon: LayoutDashboard },
+    { name: 'Kith Dashboard', path: '/org-dashboard', icon: LayoutDashboard },
   ];
 
   const adminItems = [
     { name: 'Admin Console', path: '/admin', icon: Shield },
   ];
 
+  const filteredNavItems = navItems.filter(item => {
+    if (currentUser?.role === 'kith') {
+      return ['Search & Map', 'Chat', 'Emergency'].includes(item.name);
+    }
+    return true;
+  });
+
+  const getMobileNavItems = () => {
+    if (currentUser?.role === 'kith') {
+      return [
+        { name: 'Console', path: '/org-dashboard', icon: LayoutDashboard },
+        { name: 'Map', path: '/search', icon: Search },
+        { name: 'Chat', path: '/chat', icon: MessageSquare }
+      ];
+    }
+    return navItems.filter(item => ['Feed', 'Search & Map', 'Donations', 'Volunteer', 'Chat'].includes(item.name));
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-10 h-10 border-4 border-slate-200 dark:border-slate-700 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-xs text-slate-400 font-medium">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
+    <>
     <div className={`min-h-screen flex bg-slate-50 dark:bg-slate-950 transition-colors duration-200`}>
       
       {/* 1. DESKTOP SIDEBAR NAVIGATION */}
       <aside className="hidden md:flex flex-col w-64 fixed inset-y-0 left-0 bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800/80 z-20">
-        <div className="h-16 flex items-center px-6 border-b border-slate-50 dark:border-slate-800/50 cursor-pointer" onClick={() => navigate('/feed')}>
-          <img src={kithLogo} alt="Kith Logo" className="w-8 h-8 object-contain mr-2.5" />
-          <span className="text-xl font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent">
-            Kith
-          </span>
+        <div className="h-16 flex items-center justify-center border-b border-slate-50 dark:border-slate-800/50 cursor-pointer" onClick={() => navigate('/feed')}>
+          <img src={kithLogo} alt="Kith Logo" className="w-12 h-12 object-contain" />
         </div>
 
         <div className="flex-1 py-6 px-4 overflow-y-auto space-y-7">
@@ -66,7 +110,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               Explore
             </span>
             <nav className="mt-2 space-y-1">
-              {navItems.map((item) => {
+              {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <button
@@ -92,7 +136,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           </div>
 
           {/* Org Dashboard (Condition-based) */}
-          {currentUser && (currentUser.role === 'organization' || currentUser.role === 'admin') && (
+          {currentUser && (currentUser.role === 'kith' || currentUser.role === 'admin') && (
             <div>
               <span className="px-3 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                 Management
@@ -177,8 +221,23 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="p-2 min-w-0">
                 <Settings className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={logoutUser} className="p-2 min-w-0 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20">
+              <Button variant="ghost" size="sm" onClick={() => setIsLogoutModalOpen(true)} className="p-2 min-w-0 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20">
                 <LogOut className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Guest sign in link inside sidebar */}
+        {!currentUser && (
+          <div className="p-4 border-t border-slate-50 dark:border-slate-800/50 flex flex-col space-y-2">
+            <Button variant="primary" size="sm" onClick={() => navigate('/auth')} className="w-full font-semibold cursor-pointer">
+              Sign In / Sign Up
+            </Button>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-slate-450 dark:text-slate-500 font-medium">Theme</span>
+              <Button variant="ghost" size="sm" onClick={toggleTheme} className="p-2 min-w-0 cursor-pointer">
+                {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-brand-amber-500" />}
               </Button>
             </div>
           </div>
@@ -190,11 +249,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         
         {/* TOP BAR HEADER */}
         <header className="sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800/60 h-16 flex items-center justify-between px-4 md:px-8 z-10">
-          <div className="flex items-center md:hidden">
-            <img src={kithLogo} alt="Kith Logo" className="w-7 h-7 object-contain mr-2" />
-            <span className="text-lg font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent cursor-pointer" onClick={() => navigate('/feed')}>
-              Kith
-            </span>
+          <div className="flex items-center md:hidden cursor-pointer" onClick={() => navigate('/feed')}>
+            <img src={kithLogo} alt="Kith Logo" className="w-11 h-11 object-contain" />
           </div>
 
           <div className="hidden md:flex items-center space-x-2">
@@ -207,15 +263,17 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {/* Quick Controls */}
           <div className="flex items-center space-x-2">
             {/* Create Post FAB trigger */}
-            <Button
-              onClick={() => navigate('/create-post')}
-              variant="primary"
-              size="sm"
-              className="hidden sm:inline-flex rounded-xl font-semibold cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4 mr-2" />
-              Create Opportunity
-            </Button>
+            {(currentUser?.role === 'kith' || currentUser?.role === 'admin') && (
+              <Button
+                onClick={() => navigate('/create-post')}
+                variant="primary"
+                size="sm"
+                className="hidden sm:inline-flex rounded-xl font-semibold cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 mr-2" />
+                Create Opportunity
+              </Button>
+            )}
 
             {/* Notification Bell */}
             <button
@@ -249,7 +307,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         {/* 3. MOBILE BOTTOM NAVIGATION */}
         <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-t border-slate-100 dark:border-slate-800/80 flex justify-around items-center h-16 px-2 z-20 shadow-lg">
-          {navItems.filter(item => ['Feed', 'Search & Map', 'Donations', 'Volunteer', 'Chat'].includes(item.name)).map((item) => {
+          {getMobileNavItems().map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
             return (
@@ -362,16 +420,14 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <div className="absolute inset-0 bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
           <div className="absolute inset-y-0 right-0 w-64 bg-white dark:bg-slate-900 shadow-xl flex flex-col p-6 space-y-6">
             <div className="flex justify-between items-center">
-              <span className="text-lg font-bold font-display bg-gradient-to-r from-brand-blue-500 to-brand-green-500 bg-clip-text text-transparent">
-                Kith Menus
-              </span>
+              <img src={kithLogo} alt="Kith Logo" className="w-9 h-9 object-contain" />
               <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
 
             <nav className="flex-1 space-y-1.5 text-left">
-              {navItems.map((item) => {
+              {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <button
@@ -389,7 +445,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 );
               })}
 
-              {currentUser && (currentUser.role === 'organization' || currentUser.role === 'admin') && (
+              {currentUser && (currentUser.role === 'kith' || currentUser.role === 'admin') && (
                 <>
                   <div className="h-px bg-slate-100 dark:bg-slate-800 my-4" />
                   {orgItems.map((item) => {
@@ -436,20 +492,75 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               )}
             </nav>
 
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-around">
-              <Button variant="ghost" size="sm" onClick={toggleTheme}>
-                {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5 text-brand-amber-500" />}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => handleNav('/settings')}>
-                <Settings className="w-5 h-5" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={logoutUser} className="text-red-500">
-                <LogOut className="w-5 h-5" />
-              </Button>
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-around w-full">
+              {currentUser ? (
+                <>
+                  <Button variant="ghost" size="sm" onClick={toggleTheme} className="cursor-pointer">
+                    {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5 text-brand-amber-500" />}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleNav('/settings')} className="cursor-pointer">
+                    <Settings className="w-5 h-5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsLogoutModalOpen(true);
+                  }} className="text-red-500 cursor-pointer">
+                    <LogOut className="w-5 h-5" />
+                  </Button>
+                </>
+              ) : (
+                <div className="flex flex-col w-full space-y-2">
+                  <Button variant="primary" size="sm" onClick={() => handleNav('/auth')} className="w-full font-semibold cursor-pointer">
+                    Sign In / Sign Up
+                  </Button>
+                  <div className="flex items-center justify-between pt-1 px-1">
+                    <span className="text-xs text-slate-405 dark:text-slate-400 font-medium">Theme</span>
+                    <Button variant="ghost" size="sm" onClick={toggleTheme} className="cursor-pointer">
+                      {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5 text-brand-amber-500" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
     </div>
+
+    {/* Logout Confirmation Modal */}
+    {isLogoutModalOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setIsLogoutModalOpen(false)}>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-sm mx-4 overflow-hidden animate-in" onClick={e => e.stopPropagation()}>
+          <div className="p-5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Sign Out</h3>
+            <button onClick={() => setIsLogoutModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-650 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Are you sure you want to sign out of your account? You will need to sign in again to access your messages and coordinating listings.
+            </p>
+          </div>
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end space-x-2">
+            <Button variant="outline" size="sm" onClick={() => setIsLogoutModalOpen(false)} className="cursor-pointer font-semibold">
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              className="cursor-pointer font-semibold"
+              onClick={async () => {
+                setIsLogoutModalOpen(false);
+                await logoutUser();
+              }}
+            >
+              Sign Out
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };

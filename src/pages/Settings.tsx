@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Settings as SettingsIcon, Shield, Bell, Languages, Eye, Moon, Sun, Trash2, Link } from 'lucide-react';
+import { Settings as SettingsIcon, Shield, Bell, Languages, Eye, Moon, Sun, Trash2, Link, AlertTriangle } from 'lucide-react';
+import { supabase } from '../services/mockDb';
 
 export const Settings: React.FC = () => {
-  const { theme, toggleTheme, currentUser, updateProfile, logoutUser } = useApp();
+  const { theme, toggleTheme, currentUser, updateProfile, logoutUser, showToast } = useApp();
+  const navigate = useNavigate();
   
   const [name, setName] = useState(currentUser?.name || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -15,22 +18,36 @@ export const Settings: React.FC = () => {
   const [notifEmail, setNotifEmail] = useState(true);
   const [notifPush, setNotifPush] = useState(true);
   const [privacyPublic, setPrivacyPublic] = useState(true);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await updateProfile({ name, email, location });
-      alert('Settings updated successfully!');
+      showToast('Settings updated successfully!', 'success');
     } catch (err) {
       console.error(err);
     }
   };
 
   const handleDelete = () => {
-    if (window.confirm('WARNING: Are you sure you want to delete your Kith account? This action is permanent and cannot be undone.')) {
-      logoutUser();
-      alert('Your account has been deleted (simulated).');
-      window.location.href = '/';
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDeleteAccount = async () => {
+    try {
+      setIsDeleteModalOpen(false);
+      if (currentUser) {
+        // Delete profile row (cascades database-wide)
+        const { error } = await supabase.from('profiles').delete().eq('id', currentUser.id);
+        if (error) throw error;
+      }
+      await logoutUser();
+      showToast('Your account has been deleted successfully.', 'info');
+      navigate('/landing');
+    } catch (err) {
+      console.error("Delete account failed:", err);
+      showToast("Failed to delete account. Please try again.", "error");
     }
   };
 
@@ -169,6 +186,45 @@ export const Settings: React.FC = () => {
           </Card>
         </div>
       </div>
+      
+      {/* Delete Account Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <Card className="max-w-md w-full p-6 space-y-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl text-center">
+            <div className="mx-auto w-12 h-12 bg-red-100 dark:bg-red-950/20 rounded-full flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+            
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white">Delete your Kith account?</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                This action is permanent and cannot be undone. All your posts, registrations, mentorships, and messages will be permanently deleted from the database.
+              </p>
+            </div>
+            
+            <div className="flex space-x-3 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                fullWidth
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="text-xs py-2.5 font-bold cursor-pointer"
+              >
+                Cancel, Keep Account
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                fullWidth
+                onClick={confirmDeleteAccount}
+                className="text-xs py-2.5 font-bold cursor-pointer"
+              >
+                Yes, Delete Account
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

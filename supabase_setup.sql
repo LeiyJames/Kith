@@ -8,8 +8,10 @@ create extension if not exists pgcrypto;
 
 -- 1. DROP EXISTING TABLES & TRIGGERS (If any, to start clean)
 drop trigger if exists on_auth_user_created on auth.users;
+drop trigger if exists on_auth_user_created_confirm on auth.users;
 drop function if exists public.handle_new_user();
-drop function if exists public.is_admin();
+drop function if exists public.auto_confirm_user();
+drop function if exists public.is_admin() cascade;
 
 drop table if exists public.reports cascade;
 drop table if exists public.notifications cascade;
@@ -27,7 +29,7 @@ create table public.profiles (
   id uuid references auth.users on delete cascade primary key,
   email text not null,
   name text,
-  role text check (role in ('user', 'organization', 'admin')) default 'user',
+  role text check (role in ('individual', 'kith', 'admin')) default 'individual',
   avatar text,
   location text,
   bio text,
@@ -59,10 +61,10 @@ begin
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
-    coalesce(new.raw_user_meta_data->>'role', 'user'),
+    coalesce(new.raw_user_meta_data->>'role', 'individual'),
     coalesce(new.raw_user_meta_data->>'avatar', 'https://api.dicebear.com/7.x/adventurer/svg?seed=' || new.id::text),
-    'Downtown District',
-    'Just joined Kith! Excited to help out.',
+    '',
+    '',
     false,
     50
   );
@@ -70,10 +72,25 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Trigger definition
+-- Trigger definition for profiling
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- Trigger function for auto-confirming email
+create or replace function public.auto_confirm_user()
+returns trigger as $$
+begin
+  new.email_confirmed_at = now();
+  new.confirmed_at = now();
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Trigger definition for auto-confirming email before insert
+create trigger on_auth_user_created_confirm
+  before insert on auth.users
+  for each row execute procedure public.auto_confirm_user();
 
 -- 4. CREATE OTHER KITH TABLES
 
@@ -226,310 +243,74 @@ end;
 $$ language plpgsql security definer;
 
 -- Profiles Policies
+drop policy if exists "Allow public read access to profiles" on public.profiles;
 create policy "Allow public read access to profiles" on public.profiles for select using (true);
+drop policy if exists "Allow users to update their own profiles" on public.profiles;
 create policy "Allow users to update their own profiles" on public.profiles for update using (auth.uid() = id);
+drop policy if exists "Allow users to insert their own profile" on public.profiles;
+create policy "Allow users to insert their own profile" on public.profiles for insert with check (auth.uid() = id);
+drop policy if exists "Allow users to delete their own profile" on public.profiles;
+create policy "Allow users to delete their own profile" on public.profiles for delete using (auth.uid() = id);
 
 -- Posts Policies
+drop policy if exists "Allow public read access to posts" on public.posts;
 create policy "Allow public read access to posts" on public.posts for select using (true);
+drop policy if exists "Allow authenticated users to create posts" on public.posts;
 create policy "Allow authenticated users to create posts" on public.posts for insert with check (auth.uid() = user_id);
+drop policy if exists "Allow users to update/delete their own posts" on public.posts;
 create policy "Allow users to update/delete their own posts" on public.posts for all using (auth.uid() = user_id);
 
 -- Saved Posts Policies
+drop policy if exists "Allow users to manage bookmarks" on public.saved_posts;
 create policy "Allow users to manage bookmarks" on public.saved_posts for all using (auth.uid() = user_id);
 
 -- Volunteer Registrations Policies
+drop policy if exists "Allow reading registrations" on public.volunteer_registrations;
 create policy "Allow reading registrations" on public.volunteer_registrations for select using (true);
+drop policy if exists "Allow users to manage own registrations" on public.volunteer_registrations;
 create policy "Allow users to manage own registrations" on public.volunteer_registrations for all using (auth.uid() = user_id);
 
 -- Mentors Policies
+drop policy if exists "Allow public read access to mentors" on public.mentors;
 create policy "Allow public read access to mentors" on public.mentors for select using (true);
+drop policy if exists "Allow mentors to manage own profile" on public.mentors;
 create policy "Allow mentors to manage own profile" on public.mentors for all using (auth.uid() = user_id);
 
 -- Bookings Policies
+drop policy if exists "Allow users to view own bookings" on public.bookings;
 create policy "Allow users to view own bookings" on public.bookings for select using (auth.uid() = mentor_id or auth.uid() = mentee_id);
+drop policy if exists "Allow users to insert bookings" on public.bookings;
 create policy "Allow users to insert bookings" on public.bookings for insert with check (auth.uid() = mentee_id);
+drop policy if exists "Allow users to edit own bookings" on public.bookings;
 create policy "Allow users to edit own bookings" on public.bookings for update using (auth.uid() = mentor_id or auth.uid() = mentee_id);
 
 -- Projects Policies
+drop policy if exists "Allow public read access to projects" on public.projects;
 create policy "Allow public read access to projects" on public.projects for select using (true);
+drop policy if exists "Allow authenticated users to create/update projects" on public.projects;
 create policy "Allow authenticated users to create/update projects" on public.projects for all using (auth.uid() is not null);
 
 -- Messages Policies
+drop policy if exists "Allow users to view own chats" on public.messages;
 create policy "Allow users to view own chats" on public.messages for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
+drop policy if exists "Allow users to send messages" on public.messages;
 create policy "Allow users to send messages" on public.messages for insert with check (auth.uid() = sender_id);
 
 -- Notifications Policies
+drop policy if exists "Allow users to view own notifications" on public.notifications;
 create policy "Allow users to view own notifications" on public.notifications for select using (auth.uid() = user_id);
+drop policy if exists "Allow users to update own notifications" on public.notifications;
 create policy "Allow users to update own notifications" on public.notifications for update using (auth.uid() = user_id);
 
 -- Reports Policies
+drop policy if exists "Allow admins to view reports" on public.reports;
 create policy "Allow admins to view reports" on public.reports for select using (public.is_admin());
+drop policy if exists "Allow users to submit reports" on public.reports;
 create policy "Allow users to submit reports" on public.reports for insert with check (auth.uid() = reporter_id);
+drop policy if exists "Allow admins to update reports" on public.reports;
 create policy "Allow admins to update reports" on public.reports for update using (public.is_admin());
 
 
--- =======================================================
--- 6. SEED MOCK DATA
--- =======================================================
-
--- Seed users in Auth
-insert into auth.users (id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data)
-values 
-  ('00000000-0000-0000-0000-000000000001', 'elena@kith.org', crypt('password123', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Elena Chen"}'),
-  ('00000000-0000-0000-0000-000000000002', 'contact@greenwoodparks.org', crypt('password123', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Greenwood Park Alliance", "role":"organization"}'),
-  ('00000000-0000-0000-0000-000000000003', 'info@cityfoodbank.org', crypt('password123', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"City Harvest Food Bank", "role":"organization"}'),
-  ('00000000-0000-0000-0000-000000000004', 'lucas@kith.com', crypt('password123', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Lucas Vance", "role":"admin"}')
-on conflict (id) do nothing;
-
--- Update User Profiles with detailed attributes
-update public.profiles 
-set 
-  avatar = 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-  location = 'Downtown District',
-  bio = 'Software engineer who loves teaching high school students mathematics and web technologies. Excited to build strong bonds!',
-  skills = '{"Programming", "Math", "Web Dev", "Tutoring"}',
-  interests = '{"Volunteer", "Mentorship"}',
-  languages = '{"English", "Mandarin"}',
-  availability = 'Saturdays 2:00 PM - 6:00 PM',
-  categories = '{"Mentorship"}',
-  impact_score = 320,
-  volunteer_hours = 24,
-  items_donated = 3,
-  people_helped = 12,
-  events_joined = 4,
-  badges = '[{"id": "b1", "name": "Helper", "icon": "❤️", "description": "Helped 10 neighbors"}, {"id": "b2", "name": "Brainy", "icon": "🎓", "description": "Completed 5 mentorship sessions"}]'::jsonb
-where id = '00000000-0000-0000-0000-000000000001';
-
-update public.profiles 
-set 
-  role = 'organization',
-  avatar = 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=150',
-  location = 'West City Center',
-  bio = 'Dedicated to preserving city green spaces, planting native species, and community-led gardening initiatives.',
-  skills = '{"Gardening", "Landscaping", "Event Management"}',
-  interests = '{"Volunteer", "Environment", "Community Projects"}',
-  languages = '{"English", "Spanish"}',
-  availability = 'All days, by schedule',
-  categories = '{"Volunteer", "Community Events"}',
-  impact_score = 1840,
-  people_helped = 450,
-  verified = true
-where id = '00000000-0000-0000-0000-000000000002';
-
-update public.profiles 
-set 
-  role = 'organization',
-  avatar = 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?w=150',
-  location = 'East Side Industrial Park',
-  bio = 'Gathering surplus food and delivering it to shelters and families in need. Zero waste, zero hunger.',
-  skills = '{"Logistics", "Food Safety", "Volunteering Coordination"}',
-  interests = '{"Donations", "Emergency Response", "Volunteer"}',
-  languages = '{"English", "Spanish", "Vietnamese"}',
-  availability = 'Monday-Friday 8am - 6pm',
-  categories = '{"Donations", "Volunteer", "Emergency Response"}',
-  impact_score = 3500,
-  people_helped = 2800,
-  verified = true
-where id = '00000000-0000-0000-0000-000000000003';
-
-update public.profiles 
-set 
-  role = 'admin',
-  avatar = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-  location = 'Main Office',
-  bio = 'Kith administrator ensuring safe, positive, and productive interactions across our local communities.',
-  skills = '{"Moderation", "Community Support"}',
-  interests = '{"Community Events"}',
-  languages = '{"English"}',
-  availability = 'Always online',
-  impact_score = 999,
-  volunteer_hours = 120,
-  items_donated = 50,
-  people_helped = 200,
-  events_joined = 15,
-  badges = '[{"id": "ba", "name": "Staff", "icon": "🔑", "description": "Kith Admin Staff"}]'::jsonb
-where id = '00000000-0000-0000-0000-000000000004';
 
 
--- Seed Opportunities (Posts)
-insert into public.posts (id, user_id, type, category, title, description, location, photos, urgency, created_at, details)
-values 
-  (
-    '00000000-0000-0000-0000-000000000011',
-    '00000000-0000-0000-0000-000000000003',
-    'volunteer',
-    'Food Distribution',
-    'Food Sorting and Packing Volunteers Needed',
-    'Join us at the warehouse to sort fresh vegetables, pack non-perishable boxes, and load distribution trucks for local shelters. Friendly environment, snacks provided!',
-    'East Side Industrial Depot',
-    '{"https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=600"}',
-    'high',
-    now() - interval '2 hours',
-    '{"date": "2026-07-01", "time": "9:00 AM - 1:00 PM", "slotsTotal": 15, "slotsFilled": 9, "difficulty": "Moderate", "hoursRequired": 4, "skillsNeeded": ["Teamwork", "Lifting"]}'::jsonb
-  ),
-  (
-    '00000000-0000-0000-0000-000000000012',
-    '00000000-0000-0000-0000-000000000001',
-    'need_help',
-    'Education',
-    'Math Tutor Needed for High School Student',
-    'Looking for a patient volunteer who can tutor my son in Algebra and trigonometry once a week. We can meet at the public library.',
-    'West Side Public Library',
-    '{}',
-    'medium',
-    now() - interval '1 day',
-    '{"date": "Ongoing", "time": "Flexible (1-2 hours/week)", "topic": "High School Algebra"}'::jsonb
-  ),
-  (
-    '00000000-0000-0000-0000-000000000013',
-    '00000000-0000-0000-0000-000000000001',
-    'donation',
-    'Electronics',
-    'Slightly Used Coding Laptop (ThinkPad)',
-    'Giving away a fully functional Lenovo ThinkPad. Dual core, 8GB RAM, fresh Linux install. Perfect for a student learning coding or web design.',
-    'Downtown Public Library',
-    '{"https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=600"}',
-    'medium',
-    now() - interval '3 days',
-    '{"condition": "Good / Used", "logistics": "Dropoff / Pickup at Library"}'::jsonb
-  ),
-  (
-    '00000000-0000-0000-0000-000000000014',
-    '00000000-0000-0000-0000-000000000003',
-    'emergency',
-    'Emergency Response',
-    'Emergency Flood Relief Food Supply Distribution',
-    'URGENT: Following the flash flood in Sector 5, we are establishing a temporary food and water distribution depot. We urgently need 5 volunteers to help hand out emergency meal packages and bottled water packets to displaced residents.',
-    'Sector 5 Community Center Parking Lot',
-    '{"https://images.unsplash.com/photo-1547683905-f686c993aae5?w=600"}',
-    'critical',
-    now() - interval '10 minutes',
-    '{"date": "2026-06-30", "time": "Immediate / Ongoing", "slotsTotal": 10, "slotsFilled": 2, "difficulty": "Moderate", "hoursRequired": 6, "skillsNeeded": ["Emergency Response", "Heavy Lifting"]}'::jsonb
-  )
-on conflict (id) do nothing;
 
-
--- Seed Mentors
-insert into public.mentors (id, user_id, name, avatar, role, bio, skills, languages, availability, rating, reviews_count, experience)
-values 
-  (
-    '00000000-0000-0000-0000-000000000021',
-    '00000000-0000-0000-0000-000000000001',
-    'Elena Chen',
-    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    'Software Engineer & Math Enthusiast',
-    'Offering free mentorship in Intro to Programming (Python/JS/TS), High School Math, Algebra, and SAT Math Prep.',
-    '{"Programming", "Math", "Web Dev", "SAT Prep"}',
-    '{"English", "Mandarin"}',
-    'Saturdays 2:00 PM - 6:00 PM',
-    4.9,
-    14,
-    '3 years volunteering as tutor, Software Engineer at TechCorp'
-  ),
-  (
-    '00000000-0000-0000-0000-000000000022',
-    '00000000-0000-0000-0000-000000000004',
-    'Lucas Vance',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    'Career Advisor & Nonprofit Coach',
-    'Happy to review resumes, practice job interviews, and consult on careers in NGO management, marketing, or tech administration.',
-    '{"Career Advice", "Resume Review", "Business", "Public Speaking"}',
-    '{"English"}',
-    'Wednesdays 6:00 PM - 8:00 PM',
-    4.8,
-    8,
-    '8 years career consulting, Executive Director at City Linkages'
-  )
-on conflict (id) do nothing;
-
-
--- Seed Projects
-insert into public.projects (id, title, description, organizer, goal_amount, current_amount, volunteers_goal, volunteers_joined, donation_count, status, cover_photo, timeline, updates)
-values 
-  (
-    '00000000-0000-0000-0000-000000000031',
-    'Community Garden Revitalization',
-    'We are transforming an abandoned 2000 sq ft plot in East City into a vibrant community garden. The project will yield fresh, free vegetables for local residents and provide a learning lab for children. Funds will buy tools, compost, and seeds; volunteer events will handle the building and planting.',
-    'Greenwood Park Alliance',
-    2500,
-    1850,
-    30,
-    18,
-    24,
-    'active',
-    'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=800',
-    '[{"id": "t1", "date": "2026-06-01", "title": "Plot Clean-up", "desc": "Cleared trash and old weeds"}, {"id": "t2", "date": "2026-06-15", "title": "Soil Testing & Prep", "desc": "Tested soil and delivered 10 tons of compost"}, {"id": "t3", "date": "2026-07-04", "title": "Fencing & Raised Beds", "desc": "Next volunteer event to build beds"}]'::jsonb,
-    '[{"id": "u1", "date": "2026-06-16", "content": "We successfully raised $1800! Big thank you to everyone. The compost has arrived and soil testing reports show high-quality organic levels.", "author": "Greenwood Alliance Coordinator"}]'::jsonb
-  ),
-  (
-    '00000000-0000-0000-0000-000000000032',
-    'Little Free Library Network',
-    'Building and installing 5 book-sharing boxes across low-income neighborhood playgrounds. Books will be sourced from community donations. Our goal is to make reading material easily accessible for kids of all ages.',
-    'Downtown Community Alliance',
-    800,
-    820,
-    10,
-    11,
-    19,
-    'completed',
-    'https://images.unsplash.com/photo-1544816155-12df9643f363?w=800',
-    '[{"id": "t1", "date": "2026-05-10", "title": "Design Approval", "desc": "Finalized architectural details"}, {"id": "t2", "date": "2026-06-05", "title": "Building Phase", "desc": "Volunteers built 5 robust libraries"}, {"id": "t3", "date": "2026-06-25", "title": "Installation Done", "desc": "All libraries fixed in target parks!"}]'::jsonb,
-    '[{"id": "u1", "date": "2026-06-26", "content": "All libraries are set up and fully stocked with children''s and YA books. Thank you to the volunteers who spent their weekend drilling and painting!", "author": "Downtown Coordinator"}]'::jsonb
-  )
-on conflict (id) do nothing;
-
-
--- Seed Notifications for Elena
-insert into public.notifications (id, user_id, title, content, type, timestamp, read)
-values 
-  (
-    '00000000-0000-0000-0000-000000000041',
-    '00000000-0000-0000-0000-000000000001',
-    'Volunteer Slot Confirmed',
-    'You have been registered for "Food Sorting and Packing Volunteers Needed" tomorrow at 9:00 AM.',
-    'volunteer',
-    now() - interval '2 hours',
-    false
-  ),
-  (
-    '00000000-0000-0000-0000-000000000042',
-    '00000000-0000-0000-0000-000000000001',
-    'New Donation Request Nearby',
-    'Downtown Community School is seeking donations of children''s storybooks in your area.',
-    'donation',
-    now() - interval '18 hours',
-    true
-  ),
-  (
-    '00000000-0000-0000-0000-000000000043',
-    '00000000-0000-0000-0000-000000000001',
-    'Welcome to Kith!',
-    'Thank you for joining our community! Complete your onboarding details to receive custom recommendations.',
-    'system',
-    now() - interval '3 days',
-    true
-  )
-on conflict (id) do nothing;
-
--- Seed Messages
-insert into public.messages (id, sender_id, receiver_id, content, timestamp, status, type)
-values 
-  (
-    '00000000-0000-0000-0000-000000000051',
-    '00000000-0000-0000-0000-000000000003',
-    '00000000-0000-0000-0000-000000000001',
-    'Hi Elena! Thanks for registering to volunteer. Just a quick reminder to wear closed-toe shoes at the warehouse tomorrow.',
-    now() - interval '3 hours',
-    'read',
-    'text'
-  ),
-  (
-    '00000000-0000-0000-0000-000000000052',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000003',
-    'Hi! Thank you for letting me know. I will make sure to wear sneakers. See you tomorrow!',
-    now() - interval '2 hours',
-    'read',
-    'text'
-  )
-on conflict (id) do nothing;

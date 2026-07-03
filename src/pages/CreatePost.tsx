@@ -5,7 +5,15 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
-import { ArrowLeft, ArrowRight, Eye, CheckCircle, Image, MapPin, Calendar, Clock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, CheckCircle, Image, MapPin, Calendar, Clock, X, Upload } from 'lucide-react';
+
+const getImageUrls = (urlStr: string): string[] => {
+  if (!urlStr) return [];
+  if (urlStr.startsWith('data:')) {
+    return [urlStr];
+  }
+  return urlStr.split(',').map(u => u.trim()).filter(Boolean);
+};
 
 const CATEGORIES = [
   { id: 'need_help', label: 'Need Help', type: 'need_help', cat: 'General Help' },
@@ -13,16 +21,23 @@ const CATEGORIES = [
   { id: 'donation', label: 'Donate Item', type: 'donation', cat: 'Donations' },
   { id: 'volunteer', label: 'Volunteer Event', type: 'volunteer', cat: 'Volunteer' },
   { id: 'event', label: 'Community Event', type: 'event', cat: 'Community Events' },
-  { id: 'job', label: 'Job Opportunity', type: 'job', cat: 'Jobs' },
+  { id: 'job', label: 'Job Listing', type: 'job', cat: 'Jobs' },
   { id: 'emergency', label: 'Emergency Aid', type: 'emergency', cat: 'Emergency Response' },
 ];
 
 export const CreatePost: React.FC = () => {
-  const { addNewPost, currentUser } = useApp();
+  const { addNewPost, currentUser, showToast } = useApp();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (currentUser && currentUser.role !== 'kith' && currentUser.role !== 'admin') {
+      showToast('Access restricted to Kith accounts only.', 'error');
+      navigate('/feed');
+    }
+  }, [currentUser, navigate]);
 
   // Form Fields
   const [selectedCat, setSelectedCat] = useState(CATEGORIES[0]);
@@ -42,6 +57,22 @@ export const CreatePost: React.FC = () => {
   const [eventTime, setEventTime] = useState('');
   const [skillsNeeded, setSkillsNeeded] = useState('');
 
+  // Donation additional fields
+  const [donationCategory, setDonationCategory] = useState('Clothing');
+  const [quantity, setQuantity] = useState('1 item');
+
+  // Job additional fields
+  const [jobType, setJobType] = useState('Full-time');
+  const [compensation, setCompensation] = useState('Volunteer / Unpaid');
+
+  // Mentorship additional fields
+  const [mentorshipTopic, setMentorshipTopic] = useState('Technology');
+  const [sessionDuration, setSessionDuration] = useState('60 minutes');
+  const [sessionFormat, setSessionFormat] = useState('Online');
+
+  // Emergency additional fields
+  const [incidentType, setIncidentType] = useState('Flood');
+
   const handleNext = () => {
     if (step < 2) {
       setStep(step + 1);
@@ -59,11 +90,16 @@ export const CreatePost: React.FC = () => {
   const handlePublish = async () => {
     try {
       const details: any = {};
+      let finalUrgency = urgency;
+
       if (selectedCat.type === 'donation') {
         details.condition = condition;
         details.delivery = delivery;
+        details.donationCategory = donationCategory;
+        details.quantity = quantity;
         details.completed = false;
-      } else if (selectedCat.type === 'volunteer' || selectedCat.type === 'event' || selectedCat.type === 'emergency') {
+        finalUrgency = 'low';
+      } else if (selectedCat.type === 'volunteer' || selectedCat.type === 'event') {
         details.date = eventDate || new Date().toISOString().split('T')[0];
         details.time = eventTime || '10:00 AM';
         details.slotsTotal = slotsTotal;
@@ -71,6 +107,25 @@ export const CreatePost: React.FC = () => {
         details.difficulty = difficulty;
         details.hoursRequired = hoursRequired;
         details.skillsNeeded = skillsNeeded.split(',').map(s => s.trim()).filter(Boolean);
+        finalUrgency = 'low';
+      } else if (selectedCat.type === 'emergency') {
+        details.date = eventDate || new Date().toISOString().split('T')[0];
+        details.time = eventTime || 'ASAP';
+        details.slotsTotal = slotsTotal;
+        details.slotsFilled = 0;
+        details.incidentType = incidentType;
+        details.completed = false;
+        finalUrgency = 'critical';
+      } else if (selectedCat.type === 'job') {
+        details.jobType = jobType;
+        details.compensation = compensation;
+        details.skillsNeeded = skillsNeeded.split(',').map(s => s.trim()).filter(Boolean);
+        finalUrgency = 'low';
+      } else if (selectedCat.type === 'mentorship') {
+        details.mentorshipTopic = mentorshipTopic;
+        details.sessionDuration = sessionDuration;
+        details.sessionFormat = sessionFormat;
+        finalUrgency = 'low';
       }
 
       await addNewPost({
@@ -79,27 +134,37 @@ export const CreatePost: React.FC = () => {
         title,
         description,
         location,
-        urgency,
-        photos: photoUrl ? [photoUrl] : [],
+        urgency: finalUrgency,
+        photos: getImageUrls(photoUrl),
         details
       });
 
-      alert('Opportunity created successfully! Impact score updated.');
-      navigate('/feed');
+      showToast('Listing created successfully! Impact score updated.', 'success');
+      if (currentUser?.role === 'admin') {
+        navigate('/admin-dashboard');
+      } else if (currentUser?.role === 'kith') {
+        navigate('/org-dashboard');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const presetPhotos: Record<string, string> = {
-    donation: 'https://images.unsplash.com/photo-1593113598332-cd288d649433?w=600',
-    volunteer: 'https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?w=600',
-    emergency: 'https://images.unsplash.com/photo-1547683905-f686c993aae5?w=600',
-    general: 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?w=600'
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const autoSelectPhoto = (catType: string) => {
-    setPhotoUrl(presetPhotos[catType] || presetPhotos.general);
+    // No-op to remove mockup presets
   };
 
   return (
@@ -108,7 +173,7 @@ export const CreatePost: React.FC = () => {
         <button onClick={() => navigate('/feed')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer">
           <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
         </button>
-        <h1 className="text-xl font-bold font-display text-slate-850 dark:text-white">Create New Opportunity</h1>
+        <h1 className="text-xl font-bold font-display text-slate-850 dark:text-white">Create New Listing</h1>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -131,7 +196,7 @@ export const CreatePost: React.FC = () => {
             <div className="space-y-5">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Select Opportunity Category
+                  Select Listing Category
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {CATEGORIES.map((cat) => (
@@ -155,7 +220,7 @@ export const CreatePost: React.FC = () => {
               </div>
 
               <Input
-                label="Opportunity Title"
+                label="Listing Title"
                 type="text"
                 placeholder="e.g. Seeking Algebra Math Tutor / Donating warm blankets"
                 value={title}
@@ -192,39 +257,119 @@ export const CreatePost: React.FC = () => {
                   required
                 />
 
-                <div className="text-left">
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Urgency Level
-                  </label>
-                  <select
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 text-slate-800 dark:text-slate-105"
-                    value={urgency}
-                    onChange={(e: any) => setUrgency(e.target.value)}
-                  >
-                    <option value="low">Low Urgency</option>
-                    <option value="medium">Medium Urgency</option>
-                    <option value="high">High Urgency</option>
-                    <option value="critical">Critical / Emergency</option>
-                  </select>
-                </div>
+                {/* Urgency selection ONLY for need_help / offer_help */}
+                {(selectedCat.type === 'need_help' || selectedCat.type === 'offer_help') ? (
+                  <div className="text-left">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Urgency Level
+                    </label>
+                    <select
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 text-slate-800 dark:text-slate-105"
+                      value={urgency}
+                      onChange={(e: any) => setUrgency(e.target.value)}
+                    >
+                      <option value="low">Low Urgency</option>
+                      <option value="medium">Medium Urgency</option>
+                      <option value="high">High Urgency</option>
+                      <option value="critical">Critical / Emergency</option>
+                    </select>
+                  </div>
+                ) : selectedCat.type === 'donation' ? (
+                  <div className="text-left">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Quantity Available
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1 item / Batch of 10"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 text-slate-800 dark:text-slate-105"
+                    />
+                  </div>
+                ) : selectedCat.type === 'job' ? (
+                  <div className="text-left">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Job Type
+                    </label>
+                    <select
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 text-slate-800 dark:text-slate-105"
+                      value={jobType}
+                      onChange={(e: any) => setJobType(e.target.value)}
+                    >
+                      <option value="Full-time">Full-time</option>
+                      <option value="Part-time">Part-time</option>
+                      <option value="Contract">Contract</option>
+                      <option value="Internship">Internship</option>
+                    </select>
+                  </div>
+                ) : selectedCat.type === 'mentorship' ? (
+                  <div className="text-left">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Format
+                    </label>
+                    <select
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 text-slate-800 dark:text-slate-105"
+                      value={sessionFormat}
+                      onChange={(e: any) => setSessionFormat(e.target.value)}
+                    >
+                      <option value="Online">Online Session</option>
+                      <option value="In-person">In-person</option>
+                    </select>
+                  </div>
+                ) : selectedCat.type === 'emergency' ? (
+                  <div className="text-left">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Incident Type
+                    </label>
+                    <select
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 text-slate-800 dark:text-slate-105"
+                      value={incidentType}
+                      onChange={(e: any) => setIncidentType(e.target.value)}
+                    >
+                      <option value="Flood">Flood Aid</option>
+                      <option value="Fire">Fire Rescue</option>
+                      <option value="Medical">Medical Alert</option>
+                      <option value="Missing">Search & Rescue</option>
+                      <option value="Food Aid">Food Distribution</option>
+                    </select>
+                  </div>
+                ) : null}
               </div>
 
               {/* Donation Custom fields */}
               {selectedCat.type === 'donation' && (
-                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="text-left">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+                      Item Category
+                    </label>
+                    <select
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100"
+                      value={donationCategory}
+                      onChange={(e: any) => setDonationCategory(e.target.value)}
+                    >
+                      <option value="Clothing">Clothing & Apparel</option>
+                      <option value="Food">Food & Hydration</option>
+                      <option value="Electronics">Electronics & Tools</option>
+                      <option value="Books">Books & Learning</option>
+                      <option value="Household">Household Supplies</option>
+                      <option value="Other">Other Items</option>
+                    </select>
+                  </div>
                   <div className="text-left">
                     <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
                       Item Condition
                     </label>
                     <select
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100"
                       value={condition}
                       onChange={(e: any) => setCondition(e.target.value)}
                     >
-                      <option value="New">New</option>
+                      <option value="New">Brand New</option>
                       <option value="Like New">Like New</option>
-                      <option value="Good">Good</option>
-                      <option value="Fair">Fair</option>
+                      <option value="Good">Good Condition</option>
+                      <option value="Fair">Fair / Usable</option>
                     </select>
                   </div>
                   <div className="text-left">
@@ -232,7 +377,7 @@ export const CreatePost: React.FC = () => {
                       Logistics
                     </label>
                     <select
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100"
                       value={delivery}
                       onChange={(e: any) => setDelivery(e.target.value)}
                     >
@@ -244,9 +389,9 @@ export const CreatePost: React.FC = () => {
               )}
 
               {/* Event / Volunteer Custom Fields */}
-              {(selectedCat.type === 'volunteer' || selectedCat.type === 'event' || selectedCat.type === 'emergency') && (
+              {(selectedCat.type === 'volunteer' || selectedCat.type === 'event') && (
                 <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
                       label="Event Date"
                       type="date"
@@ -274,7 +419,7 @@ export const CreatePost: React.FC = () => {
                         Difficulty
                       </label>
                       <select
-                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl text-xs"
+                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl text-xs text-slate-800 dark:text-slate-100"
                         value={difficulty}
                         onChange={(e: any) => setDifficulty(e.target.value)}
                       >
@@ -301,13 +446,126 @@ export const CreatePost: React.FC = () => {
                 </div>
               )}
 
-              <Input
-                label="Photo URL (Optional mockup image)"
-                type="text"
-                placeholder="e.g. https://images.unsplash.com/... or keep preset"
-                value={photoUrl}
-                onChange={(e) => setPhotoUrl(e.target.value)}
-              />
+              {/* Emergency Custom Fields */}
+              {selectedCat.type === 'emergency' && (
+                <div className="p-4 bg-red-50/5 dark:bg-red-950/5 rounded-xl border border-red-150 dark:border-red-900/40 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label="Response Date"
+                      type="date"
+                      value={eventDate}
+                      onChange={(e) => setEventDate(e.target.value)}
+                    />
+                    <Input
+                      label="Immediate Action Time"
+                      type="text"
+                      placeholder="e.g. ASAP / Immediate"
+                      value={eventTime}
+                      onChange={(e) => setEventTime(e.target.value)}
+                    />
+                  </div>
+
+                  <Input
+                    label="Responders Needed (slots)"
+                    type="number"
+                    value={slotsTotal}
+                    onChange={(e) => setSlotsTotal(parseInt(e.target.value) || 0)}
+                  />
+                </div>
+              )}
+
+              {/* Jobs Custom Fields */}
+              {selectedCat.type === 'job' && (
+                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label="Compensation / Salary"
+                      type="text"
+                      placeholder="e.g. $15/hr / Volunteer / Unpaid"
+                      value={compensation}
+                      onChange={(e) => setCompensation(e.target.value)}
+                    />
+                    <Input
+                      label="Skills Required (comma separated)"
+                      type="text"
+                      placeholder="e.g. Project Management, Cleaning"
+                      value={skillsNeeded}
+                      onChange={(e) => setSkillsNeeded(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Mentorship Custom Fields */}
+              {selectedCat.type === 'mentorship' && (
+                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="text-left">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+                      Mentorship Topic / Field
+                    </label>
+                    <select
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-850 dark:text-white"
+                      value={mentorshipTopic}
+                      onChange={(e: any) => setMentorshipTopic(e.target.value)}
+                    >
+                      <option value="Technology">Technology & Engineering</option>
+                      <option value="Career Development">Career & Resume Building</option>
+                      <option value="Education">Education & Academic</option>
+                      <option value="Healthcare">Healthcare & Well-being</option>
+                      <option value="Arts & Design">Creative Arts & Design</option>
+                      <option value="Other">Other Professional Support</option>
+                    </select>
+                  </div>
+                  <div className="text-left">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+                      Session Duration
+                    </label>
+                    <select
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-855 dark:text-white"
+                      value={sessionDuration}
+                      onChange={(e: any) => setSessionDuration(e.target.value)}
+                    >
+                      <option value="30 minutes">30 minutes</option>
+                      <option value="60 minutes">60 minutes</option>
+                      <option value="90 minutes">90 minutes</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-left space-y-2">
+                <label className="block text-xs font-semibold text-slate-500 uppercase">
+                  Cover Photo (Optional)
+                </label>
+                <div className="flex items-center space-x-4">
+                  {photoUrl ? (
+                    <div className="relative w-24 h-24 rounded-xl overflow-hidden border">
+                      <img src={photoUrl} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPhotoUrl('')}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow hover:bg-red-600 transition cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center w-24 h-24 border-2 border-dashed border-slate-250 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition relative cursor-pointer">
+                      <span className="text-[10px] text-slate-505 font-bold text-center p-1">Choose File</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                    </div>
+                  )}
+                  <div className="text-xs text-slate-400">
+                    <p className="font-semibold">Select a cover photo from your device.</p>
+                    <p>Format support: PNG, JPG, JPEG, SVG, WebP.</p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -327,7 +585,7 @@ export const CreatePost: React.FC = () => {
               onClick={handleNext}
               disabled={step === 1 && (!title || !description)}
             >
-              {step === 2 ? 'Preview Opportunity' : 'Next'}
+              {step === 2 ? 'Preview Listing' : 'Next'}
               {step !== 2 && <ArrowRight className="w-4 h-4 ml-2" />}
             </Button>
           </div>
@@ -351,7 +609,11 @@ export const CreatePost: React.FC = () => {
           {photoUrl && (
             <Card className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 overflow-hidden">
               <span className="block text-xs font-semibold text-slate-500 uppercase mb-2">Image Preview</span>
-              <img src={photoUrl} alt="Selection" className="w-full h-32 object-cover rounded-lg border" />
+              <div className="grid grid-cols-2 gap-2">
+                {getImageUrls(photoUrl).map((url, index) => (
+                  <img key={index} src={url} alt={`Selection ${index + 1}`} className="w-full h-24 object-cover rounded-lg border" />
+                ))}
+              </div>
             </Card>
           )}
         </div>
@@ -367,7 +629,7 @@ export const CreatePost: React.FC = () => {
               <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
                 <h3 className="text-base font-bold text-slate-800 dark:text-slate-150 flex items-center">
                   <Eye className="w-5 h-5 mr-2 text-brand-blue-500" />
-                  Opportunity Preview
+                  Listing Preview
                 </h3>
                 <Badge variant={urgency === 'critical' ? 'emergency' : urgency === 'high' ? 'danger' : 'neutral'}>
                   {urgency} urgency
@@ -388,7 +650,11 @@ export const CreatePost: React.FC = () => {
                 <p className="text-xs text-slate-500 dark:text-slate-450 leading-relaxed whitespace-pre-line">{description}</p>
                 
                 {photoUrl && (
-                  <img src={photoUrl} alt="Preview" className="w-full h-40 object-cover rounded-xl border border-slate-100 dark:border-slate-800" />
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    {getImageUrls(photoUrl).map((url, index) => (
+                      <img key={index} src={url} alt={`Preview ${index + 1}`} className="w-full h-28 object-cover rounded-xl border border-slate-100 dark:border-slate-800" />
+                    ))}
+                  </div>
                 )}
 
                 <div className="flex flex-wrap gap-2 text-xs bg-slate-50 dark:bg-slate-950/20 p-3 rounded-xl">
@@ -420,7 +686,7 @@ export const CreatePost: React.FC = () => {
                   Edit Details
                 </Button>
                 <Button variant="secondary" onClick={handlePublish}>
-                  Publish Opportunity
+                  Publish Listing
                 </Button>
               </div>
             </Card>

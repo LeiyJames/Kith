@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { CheckCircle2, AlertCircle, Info, AlertTriangle, X } from 'lucide-react';
 import { mockDb, supabase, UserProfile, Post, AppNotification, Message, VolunteerRegistration, MentorProfile, MentorBooking, CommunityProject, Report } from '../services/mockDb';
+
+export interface ToastMessage {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+}
 
 interface AppContextType {
   currentUser: UserProfile | null;
@@ -8,9 +15,14 @@ interface AppContextType {
   messages: Message[];
   theme: 'light' | 'dark';
   loading: boolean;
+  userRegistrations: string[];
+  
+  // Toast Operations
+  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+
   
   // Auth Operations
-  loginUser: (email: string, role?: 'user' | 'organization' | 'admin') => Promise<UserProfile>;
+  loginUser: (email: string, password?: string, role?: 'individual' | 'kith' | 'admin', isSignUp?: boolean) => Promise<UserProfile>;
   logoutUser: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<UserProfile>;
   
@@ -35,6 +47,9 @@ interface AppContextType {
   // Message Operations
   chatWithUser: (receiverId: string, text: string, type?: Message['type'], metadata?: any) => Promise<Message>;
   refreshMessages: () => Promise<void>;
+  markMessagesAsRead: (senderId: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
+  deleteConversation: (partnerId: string) => Promise<void>;
   
   // Notification Operations
   refreshNotifications: () => Promise<void>;
@@ -63,6 +78,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [reports, setReports] = useState<Report[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [loading, setLoading] = useState<boolean>(true);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [userRegistrations, setUserRegistrations] = useState<string[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
+
+  const refreshUserRegistrations = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('volunteer_registrations')
+        .select('post_id')
+        .eq('user_id', userId);
+      if (!error && data) {
+        setUserRegistrations(data.map((r: any) => r.post_id));
+      } else {
+        setUserRegistrations([]);
+      }
+    } catch (err) {
+      console.error('Error refreshing registrations:', err);
+      setUserRegistrations([]);
+    }
+  };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -123,11 +165,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setNotifications(notifs);
           const msgs = await mockDb.getMessages();
           setMessages(msgs);
+          await refreshUserRegistrations(userProfile.id);
         }
       } else {
         setCurrentUser(null);
         setNotifications([]);
         setMessages([]);
+        setUserRegistrations([]);
       }
     });
 
@@ -182,15 +226,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   // Auth operations
-  const loginUser = async (email: string, role?: 'user' | 'organization' | 'admin') => {
+  const loginUser = async (email: string, password?: string, role?: 'individual' | 'kith' | 'admin', isSignUp = false) => {
     setLoading(true);
-    const user = await mockDb.login(email, role);
+    const user = await mockDb.login(email, password, role, isSignUp);
     setCurrentUser(user);
     
     const notifs = await mockDb.getNotifications();
     setNotifications(notifs);
     const msgs = await mockDb.getMessages();
     setMessages(msgs);
+    await refreshUserRegistrations(user.id);
     
     setLoading(false);
     return user;
@@ -201,11 +246,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
     setNotifications([]);
     setMessages([]);
+    setUserRegistrations([]);
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
-    if (!currentUser) throw new Error('Not logged in');
-    const updated = await mockDb.updateUserProfile(currentUser.id, updates);
+    let userId = currentUser?.id;
+    if (!userId) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        userId = authUser.id;
+      }
+    }
+    if (!userId) throw new Error('Not logged in');
+    
+    const updated = await mockDb.updateUserProfile(userId, updates);
     setCurrentUser(updated);
     
     // Sync seeds to reflect changes if profile name/avatar changed
@@ -290,6 +344,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser) {
       const refreshedUser = await mockDb.getUserById(currentUser.id);
       setCurrentUser(refreshedUser);
+      await refreshUserRegistrations(currentUser.id);
     }
     return reg;
   };
@@ -325,6 +380,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshMessages = async () => {
     const msgs = await mockDb.getMessages();
     setMessages(msgs);
+  };
+
+  const markMessagesAsRead = async (senderId: string) => {
+    await mockDb.markMessagesAsRead(senderId);
+    await refreshMessages();
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    await mockDb.deleteMessage(messageId);
+    await refreshMessages();
+  };
+
+  const deleteConversation = async (partnerId: string) => {
+    await mockDb.deleteConversation(partnerId);
+    await refreshMessages();
   };
 
   // Notifications
@@ -370,6 +440,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         messages,
         theme,
         loading,
+        showToast,
+        userRegistrations,
         loginUser,
         logoutUser,
         updateProfile,
@@ -387,6 +459,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         donateToProject,
         chatWithUser,
         refreshMessages,
+        markMessagesAsRead,
+        deleteMessage,
+        deleteConversation,
         refreshNotifications,
         readNotification,
         readAllNotifications,
@@ -397,7 +472,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }}
     >
       {children}
+      {/* Toast Notification Container - Upper Center of Screen */}
+      <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none w-full max-w-sm px-4">
+        {toasts.map(toast => (
+          <ToastItem
+            key={toast.id}
+            toast={toast}
+            onClose={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+          />
+        ))}
+      </div>
     </AppContext.Provider>
+  );
+};
+
+const ToastItem: React.FC<{ toast: ToastMessage; onClose: () => void }> = ({ toast, onClose }) => {
+  const icons = {
+    success: <CheckCircle2 className="w-5 h-5 text-brand-green-500 flex-shrink-0" />,
+    error: <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />,
+    info: <Info className="w-5 h-5 text-brand-blue-500 flex-shrink-0" />,
+    warning: <AlertTriangle className="w-5 h-5 text-brand-amber-500 flex-shrink-0" />
+  };
+
+  const borders = {
+    success: 'border-brand-green-500/20 dark:border-brand-green-500/10',
+    error: 'border-red-500/20 dark:border-red-500/10',
+    info: 'border-brand-blue-500/20 dark:border-brand-blue-500/10',
+    warning: 'border-brand-amber-500/20 dark:border-brand-amber-500/10'
+  };
+
+  return (
+    <div
+      className={`animate-toast-in pointer-events-auto flex items-center gap-3 w-full max-w-sm px-4 py-3 rounded-2xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-lg ${borders[toast.type]} transition-all duration-300`}
+      role="alert"
+    >
+      {icons[toast.type]}
+      <div className="flex-1 text-sm font-semibold text-slate-800 dark:text-slate-100 text-left leading-snug">
+        {toast.message}
+      </div>
+      <button
+        onClick={onClose}
+        className="text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 transition p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+        aria-label="Close notification"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
   );
 };
 

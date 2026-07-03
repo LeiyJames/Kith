@@ -6,12 +6,12 @@ import { Button } from '../components/ui/Button';
 import { Shield, Users, FileText, AlertOctagon, Check, X, Ban } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
-  const { reports, resolveReport } = useApp();
+  const { reports, resolveReport, showToast } = useApp();
 
   const handleAction = async (id: string, action: 'resolved' | 'dismissed') => {
     try {
       await resolveReport(id, action);
-      alert(`Report marked as ${action}! Moderation queue updated.`);
+      showToast(`Report marked as ${action}! Moderation queue updated.`, 'success');
     } catch (err) {
       console.error(err);
     }
@@ -35,7 +35,7 @@ export const AdminDashboard: React.FC = () => {
           { label: 'Total Accounts', count: '1,280', desc: '+15 today', icon: Users },
           { label: 'Reported Flags', count: reports.filter(r => r.status === 'pending').length.toString(), desc: 'Needs review', icon: AlertOctagon },
           { label: 'Featured Campaigns', count: '2', desc: 'Main home slider', icon: FileText },
-          { label: 'Verification Requests', count: '8', desc: 'NGO validations', icon: Shield },
+          { label: 'Verification Requests', count: '8', desc: 'Kith validations', icon: Shield },
         ].map((stat, idx) => {
           const Icon = stat.icon;
           return (

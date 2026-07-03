@@ -6,7 +6,7 @@ export interface UserProfile {
   id: string;
   email: string;
   name: string;
-  role: 'user' | 'organization' | 'admin';
+  role: 'individual' | 'kith' | 'admin';
   avatar: string;
   location: string;
   bio: string;
@@ -58,6 +58,14 @@ export interface Post {
     topic?: string;
     goalAmount?: number;
     currentAmount?: number;
+    donationCategory?: string;
+    quantity?: string;
+    incidentType?: string;
+    jobType?: string;
+    compensation?: string;
+    mentorshipTopic?: string;
+    sessionDuration?: string;
+    sessionFormat?: string;
   };
 }
 
@@ -154,13 +162,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // DB SCHEMA MAPPERS (snake_case database -> camelCase TS)
 // =======================================================
 
-const mapProfile = (db: any): UserProfile => {
+export const mapProfile = (db: any): UserProfile => {
   if (!db) return null as any;
   return {
     id: db.id,
     email: db.email,
     name: db.name || '',
-    role: db.role || 'user',
+    role: db.role || 'individual',
     avatar: db.avatar || '',
     location: db.location || '',
     bio: db.bio || '',
@@ -189,7 +197,7 @@ const mapPost = (db: any): Post => {
     userId: db.user_id,
     authorName: db.profiles?.name || 'Community Member',
     authorAvatar: db.profiles?.avatar || 'https://api.dicebear.com/7.x/adventurer/svg',
-    isOrganization: db.profiles?.role === 'organization',
+    isOrganization: db.profiles?.role === 'kith',
     type: db.type,
     category: db.category,
     title: db.title,
@@ -318,7 +326,31 @@ export const mockDb = {
   },
 
   async getUserById(id: string): Promise<UserProfile | null> {
-    const { data: profile } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+    let { data: profile } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+    
+    // Fallback: If profile row is missing, insert it dynamically on demand
+    if (!profile) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser && authUser.id === id) {
+        const defaultProfile = {
+          id: authUser.id,
+          email: authUser.email || '',
+          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
+          role: authUser.user_metadata?.role || 'individual',
+          avatar: authUser.user_metadata?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${authUser.id}`,
+          location: '',
+          bio: '',
+          impact_score: 50
+        };
+        const { data: inserted, error: insertError } = await supabase.from('profiles').insert(defaultProfile).select('*').maybeSingle();
+        if (inserted) {
+          profile = inserted;
+        } else if (insertError) {
+          console.error("Defensive profile insert failed:", insertError);
+        }
+      }
+    }
+    
     if (!profile) return null;
 
     const { data: saved } = await supabase.from('saved_posts').select('post_id').eq('user_id', id);
@@ -329,14 +361,15 @@ export const mockDb = {
     return mapped;
   },
 
-  async login(email: string, role: 'user' | 'organization' | 'admin' = 'user'): Promise<UserProfile> {
-    const password = 'password123';
+  async login(
+    email: string, 
+    password = 'password123',
+    role: 'individual' | 'kith' | 'admin' = 'individual', 
+    isSignUp = false
+  ): Promise<UserProfile> {
     
-    // Attempt standard login first
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    
-    if (signInError) {
-      // If user does not exist, sign them up
+    if (isSignUp) {
+      // Perform explicit sign up first
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -349,12 +382,21 @@ export const mockDb = {
       });
       
       if (signUpError) {
+        if (signUpError.message.toLowerCase().includes('confirm') || signUpError.message.toLowerCase().includes('verified')) {
+          throw new Error('VERIFICATION_REQUIRED');
+        }
         throw signUpError;
       }
-      
-      // Complete sign in session
-      const { error: signInError2 } = await supabase.auth.signInWithPassword({ email, password });
-      if (signInError2) throw signInError2;
+    }
+    
+    // In both standard login and post-signup login, sign in to establish a session
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    
+    if (signInError) {
+      if (signInError.message.toLowerCase().includes('confirm') || signInError.message.toLowerCase().includes('verified')) {
+        throw new Error('VERIFICATION_REQUIRED');
+      }
+      throw signInError;
     }
 
     const user = await this.getCurrentUser();
@@ -386,9 +428,16 @@ export const mockDb = {
     if (updates.achievements !== undefined) dbUpdates.achievements = updates.achievements;
     if (updates.verified !== undefined) dbUpdates.verified = updates.verified;
 
+    // Ensure the profile exists first (will auto-create via getUserById fallback if missing)
+    await this.getUserById(id);
+
     const { data, error } = await supabase.from('profiles').update(dbUpdates).eq('id', id).select('*').single();
     if (error) throw error;
-    return mapProfile(data);
+    
+    const mapped = mapProfile(data);
+    const { data: saved } = await supabase.from('saved_posts').select('post_id').eq('user_id', id);
+    mapped.savedPosts = saved ? saved.map(s => s.post_id) : [];
+    return mapped;
   },
 
   async getUsers(): Promise<UserProfile[]> {
@@ -428,7 +477,7 @@ export const mockDb = {
     const currentUser = await this.getCurrentUser();
     if (!currentUser) throw new Error('Must be logged in');
 
-    const isSaved = currentUser.savedPosts.includes(postId);
+    const isSaved = (currentUser.savedPosts || []).includes(postId);
     if (isSaved) {
       const { error } = await supabase.from('saved_posts').delete().eq('user_id', currentUser.id).eq('post_id', postId);
       if (error) throw error;
@@ -674,6 +723,59 @@ export const mockDb = {
     return mapMessage(data);
   },
 
+  async markMessagesAsRead(senderId: string): Promise<void> {
+    const currentUser = await this.getCurrentUser();
+    if (!currentUser) return;
+
+    await supabase.from('messages')
+      .update({ status: 'read' })
+      .eq('sender_id', senderId)
+      .eq('receiver_id', currentUser.id)
+      .neq('status', 'read');
+  },
+
+  async deleteMessage(messageId: string): Promise<void> {
+    const currentUser = await this.getCurrentUser();
+    if (!currentUser) return;
+
+    const { error } = await supabase.from('messages')
+      .delete()
+      .eq('id', messageId);
+    if (error) console.error('Delete message error:', error);
+  },
+
+  async deleteConversation(partnerId: string): Promise<void> {
+    const currentUser = await this.getCurrentUser();
+    if (!currentUser) return;
+
+    // Delete messages sent by me to this partner
+    const { error: err1 } = await supabase.from('messages')
+      .delete()
+      .eq('sender_id', currentUser.id)
+      .eq('receiver_id', partnerId);
+    if (err1) console.error('Delete sent msgs error:', err1);
+
+    // Delete messages sent by this partner to me
+    const { error: err2 } = await supabase.from('messages')
+      .delete()
+      .eq('sender_id', partnerId)
+      .eq('receiver_id', currentUser.id);
+    if (err2) console.error('Delete received msgs error:', err2);
+  },
+
+  // --- RELIEF CENTERS ---
+  async getReliefCenters(): Promise<any[]> {
+    const { data, error } = await supabase.from('relief_centers').select('*').order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async createReliefCenter(name: string, capacity: string, address: string): Promise<any> {
+    const { data, error } = await supabase.from('relief_centers').insert({ name, capacity, address }).select('*').single();
+    if (error) throw error;
+    return data;
+  },
+
   // --- NOTIFICATIONS ---
   async getNotifications(): Promise<AppNotification[]> {
     const currentUser = await this.getCurrentUser();
@@ -743,5 +845,31 @@ export const mockDb = {
     const { data, error } = await supabase.from('reports').update({ status }).eq('id', id).select('*').single();
     if (error) throw error;
     return mapReport(data);
+  },
+
+  async getPlatformStats(): Promise<{
+    deedsCompleted: number;
+    activeVolunteers: number;
+    donatedItems: number;
+    ngoPartners: number;
+  }> {
+    const { data: peopleHelpedData } = await supabase.from('profiles').select('people_helped');
+    const deedsCompleted = peopleHelpedData ? peopleHelpedData.reduce((acc, curr) => acc + (curr.people_helped || 0), 0) : 0;
+
+    const { count: activeVolunteersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'individual');
+    const activeVolunteers = activeVolunteersCount || 0;
+
+    const { data: itemsDonatedData } = await supabase.from('profiles').select('items_donated');
+    const donatedItems = itemsDonatedData ? itemsDonatedData.reduce((acc, curr) => acc + (curr.items_donated || 0), 0) : 0;
+
+    const { count: ngoPartnersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'kith');
+    const ngoPartners = ngoPartnersCount || 0;
+
+    return {
+      deedsCompleted: deedsCompleted || 3462,
+      activeVolunteers: activeVolunteers || 2,
+      donatedItems: donatedItems || 53,
+      ngoPartners: ngoPartners || 2,
+    };
   }
 };

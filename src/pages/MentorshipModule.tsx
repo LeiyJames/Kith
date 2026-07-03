@@ -1,25 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { MentorProfile } from '../services/mockDb';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { BookOpen, Star, Calendar, Languages, Award, Clock, ArrowRight, ShieldCheck, CheckCircle } from 'lucide-react';
+import { BookOpen, Star, Calendar, Languages, Award, Clock, ArrowRight, ShieldCheck, CheckCircle, MessageSquare } from 'lucide-react';
 
 export const MentorshipModule: React.FC = () => {
-  const { mentors, requestSession, bookings, currentUser } = useApp();
+  const { mentors, requestSession, bookings, currentUser, showToast, chatWithUser } = useApp();
+  const navigate = useNavigate();
   
   const [selectedMentor, setSelectedMentor] = useState<MentorProfile | null>(null);
   const [topic, setTopic] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('06:00 PM');
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
 
-  const myBookings = bookings.filter(b => b.menteeId === currentUser?.id);
+  const myBookings = useMemo(() => {
+    return bookings.filter(b => b.menteeId === currentUser?.id);
+  }, [bookings, currentUser]);
 
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      showToast('Please sign in to request a session.', 'warning');
+      return;
+    }
     if (!selectedMentor) return;
 
     setBookingLoading(true);
@@ -30,7 +39,7 @@ export const MentorshipModule: React.FC = () => {
         date,
         time
       });
-      alert('Mentorship session requested! The mentor has been notified and you will receive a chat confirmation shortly.');
+      showToast('Mentorship session requested! The mentor has been notified and you will receive a chat confirmation shortly.', 'success');
       setSelectedMentor(null);
       setTopic('');
       setDate('');
@@ -39,6 +48,14 @@ export const MentorshipModule: React.FC = () => {
     } finally {
       setBookingLoading(false);
     }
+  };
+
+  const handleSelectMentor = (mentor: MentorProfile) => {
+    if (!currentUser) {
+      showToast('Please sign in to book mentorship sessions.', 'warning');
+      return;
+    }
+    setSelectedMentor(mentor);
   };
 
   return (
@@ -59,74 +76,141 @@ export const MentorshipModule: React.FC = () => {
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">Available Mentors</h2>
           
-          {mentors.map((mentor) => (
-            <Card
-              key={mentor.id}
-              hoverEffect
-              className="p-5 border border-slate-100 dark:border-slate-800/80"
-            >
-              <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                <div className="flex items-start space-x-3.5">
-                  <img
-                    src={mentor.avatar}
-                    alt={mentor.name}
-                    className="w-14 h-14 rounded-2xl object-cover border"
-                  />
-                  <div>
-                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 font-display flex items-center">
-                      {mentor.name}
-                      <ShieldCheck className="w-4 h-4 ml-1.5 text-brand-green-500 fill-brand-green-500/10" />
-                    </h3>
-                    <p className="text-xs font-semibold text-brand-blue-600 dark:text-brand-blue-400 mt-0.5">
-                      {mentor.role}
-                    </p>
-                    <div className="flex items-center space-x-1.5 text-xs text-brand-amber-500 font-bold mt-1.5">
-                      <Star className="w-3.5 h-3.5 fill-brand-amber-500" />
-                      <span>{mentor.rating}</span>
-                      <span className="text-slate-400 font-normal">({mentor.reviewsCount} sessions)</span>
+          {mentors.map((mentor) => {
+            const isExpanded = expandedMentorId === mentor.id;
+            return (
+              <Card
+                key={mentor.id}
+                hoverEffect
+                onClick={() => setExpandedMentorId(isExpanded ? null : mentor.id)}
+                className="p-5 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 cursor-pointer relative flex flex-col justify-between"
+              >
+                <div>
+                  {/* Card Header (Author info) */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3.5">
+                      <img
+                        src={mentor.avatar}
+                        alt={mentor.name}
+                        className="w-10 h-10 rounded-xl object-cover border"
+                      />
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center">
+                          {mentor.name}
+                          <ShieldCheck className="w-4 h-4 ml-1.5 text-brand-green-500 fill-brand-green-500/10" />
+                        </h4>
+                        <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 mt-0.5">
+                          <Star className="w-3 h-3 text-brand-amber-500 fill-brand-amber-500" />
+                          <span className="font-bold text-brand-amber-600 dark:text-brand-amber-400">{mentor.rating}</span>
+                          <span>•</span>
+                          <span>({mentor.reviewsCount} sessions)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5">
+                      <Badge variant="success">
+                        Active Mentor
+                      </Badge>
                     </div>
                   </div>
+
+                  {/* Category tags & Role */}
+                  <div className="mt-4">
+                    <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                      <span className="px-2.5 py-0.5 bg-brand-blue-50 dark:bg-brand-blue-900/15 text-brand-blue-600 dark:text-brand-blue-400 text-[10px] font-extrabold rounded-lg border border-brand-blue-100/30 dark:border-brand-blue-900/30">
+                        #Mentorship
+                      </span>
+                      <span className="px-2.5 py-0.5 bg-slate-50 dark:bg-slate-805 text-slate-650 dark:text-slate-350 text-[10px] font-extrabold rounded-lg border border-slate-100 dark:border-slate-750">
+                        {mentor.role}
+                      </span>
+                    </div>
+                    
+                    <p className={`text-xs text-slate-600 dark:text-slate-400 mt-2 leading-relaxed italic ${
+                      isExpanded ? '' : 'line-clamp-2'
+                    }`}>
+                      "{mentor.bio}"
+                    </p>
+                    {mentor.bio.length > 130 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedMentorId(isExpanded ? null : mentor.id);
+                        }}
+                        className="text-brand-blue-600 dark:text-brand-blue-400 hover:text-brand-blue-700 hover:underline font-bold text-[10px] uppercase mt-1.5 cursor-pointer focus:outline-none"
+                      >
+                        {isExpanded ? 'Show Less' : 'Read More'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Details stats box when expanded */}
+                  {isExpanded && (
+                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-2.5 text-xs font-semibold text-slate-650 dark:text-slate-405 bg-slate-50/50 dark:bg-slate-950/20 p-3 rounded-xl">
+                      <div className="flex items-center space-x-1.5">
+                        <Languages className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="text-slate-500 font-medium">Languages:</span>
+                        <strong className="text-slate-700 dark:text-slate-300 truncate">{mentor.languages.join(', ')}</strong>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <Clock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="text-slate-500 font-medium">Availability:</span>
+                        <strong className="text-slate-700 dark:text-slate-350 truncate">{mentor.availability}</strong>
+                      </div>
+                      <div className="flex items-start space-x-1.5 col-span-2 border-t border-slate-100 dark:border-slate-800/50 pt-2 mt-1">
+                        <Award className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
+                        <span className="text-slate-500 font-medium">Expertise Skills:</span>
+                        <div className="flex flex-wrap gap-1 ml-1.5">
+                          {mentor.skills.map((s) => (
+                            <Badge key={s} variant="info">{s}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => setSelectedMentor(mentor)}
-                  className="font-bold cursor-pointer self-stretch sm:self-auto text-xs py-2 px-4 rounded-xl"
-                >
-                  Book Free Session
-                </Button>
-              </div>
+                {/* Footer Controls */}
+                <div className="mt-5 pt-4 border-t border-slate-50 dark:border-slate-800/50 flex items-center justify-end w-full">
+                  <div className="flex items-center space-x-1">
+                    {/* Message / Chat button */}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!currentUser) {
+                          showToast('Please sign in to message mentors.', 'warning');
+                          navigate('/auth');
+                          return;
+                        }
+                        try {
+                          await chatWithUser(mentor.userId, `Hi ${mentor.name}! I am interested in booking a mentorship session with you to discuss some learning topics. Are you available?`);
+                          navigate('/chat', { state: { userId: mentor.userId } });
+                        } catch (err) {
+                          console.error(err);
+                        }
+                      }}
+                      data-tooltip="Chat with Mentor"
+                      className="tooltip-trigger p-2 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
 
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-4 leading-relaxed italic">
-                "{mentor.bio}"
-              </p>
-
-              {/* Skills and languages shelf */}
-              <div className="mt-4 pt-3 border-t border-slate-50 dark:border-slate-800 flex flex-wrap gap-4 text-xs font-semibold">
-                <div className="flex items-center space-x-1">
-                  <Award className="w-3.5 h-3.5 text-slate-400" />
-                  <div className="flex flex-wrap gap-1">
-                    {mentor.skills.map(s => (
-                      <Badge key={s} variant="info">{s}</Badge>
-                    ))}
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectMentor(mentor);
+                      }}
+                      className="font-bold cursor-pointer text-xs py-1.5 px-4 rounded-xl ml-2 animate-scale-in"
+                    >
+                      Book Free Session
+                    </Button>
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-1.5">
-                  <Languages className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-slate-500">Langs:</span>
-                  <span className="text-slate-700 dark:text-slate-300">{mentor.languages.join(', ')}</span>
-                </div>
-
-                <div className="flex items-center space-x-1.5">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-slate-500">Hours:</span>
-                  <span className="text-slate-750">{mentor.availability}</span>
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
 
         {/* My Bookings Panel Sidebar */}

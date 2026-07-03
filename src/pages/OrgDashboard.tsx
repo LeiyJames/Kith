@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -9,7 +10,8 @@ import {
 } from 'lucide-react';
 
 export const OrgDashboard: React.FC = () => {
-  const { posts, currentUser } = useApp();
+  const { posts, currentUser, showToast } = useApp();
+  const navigate = useNavigate();
   
   // Filter opportunities managed by this organization
   const myCampaigns = posts.filter(p => p.userId === currentUser?.id);
@@ -38,7 +40,7 @@ export const OrgDashboard: React.FC = () => {
     document.body.appendChild(link); // Required for FF
     link.click();
     document.body.removeChild(link);
-    alert('Volunteer roster exported as volunteer_roster.csv successfully!');
+    showToast('Volunteer roster exported as volunteer_roster.csv successfully!', 'success');
   };
 
   return (
@@ -47,7 +49,7 @@ export const OrgDashboard: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold font-display text-slate-855 dark:text-white flex items-center">
             <BarChart3 className="w-6 h-6 text-brand-green-500 mr-2" />
-            Organization Console
+            Kith Console
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Coordinate volunteering slots, campaign statistics, and export rosters.
@@ -59,7 +61,7 @@ export const OrgDashboard: React.FC = () => {
             <Download className="w-4 h-4 mr-1.5" />
             Export CSV
           </Button>
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/create-post')}>
             <PlusCircle className="w-4 h-4 mr-1.5" />
             Create Campaign
           </Button>

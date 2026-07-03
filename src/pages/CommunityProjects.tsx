@@ -9,7 +9,7 @@ import { Input } from '../components/ui/Input';
 import { Award, Users, DollarSign, Calendar, RefreshCw, PlusCircle, ArrowRight } from 'lucide-react';
 
 export const CommunityProjects: React.FC = () => {
-  const { projects, donateToProject } = useApp();
+  const { projects, donateToProject, showToast } = useApp();
   const navigate = useNavigate();
   const [selectedProject, setSelectedProject] = useState<CommunityProject | null>(null);
   const [donateAmount, setDonateAmount] = useState('25');
@@ -21,14 +21,14 @@ export const CommunityProjects: React.FC = () => {
 
     const amountVal = parseFloat(donateAmount);
     if (isNaN(amountVal) || amountVal <= 0) {
-      alert('Please enter a valid amount.');
+      showToast('Please enter a valid amount.', 'warning');
       return;
     }
 
     setIsDonating(true);
     try {
       await donateToProject(selectedProject.id, amountVal);
-      alert(`Thank you for donating $${amountVal} to "${selectedProject.title}"! Your impact score has increased.`);
+      showToast(`Thank you for donating $${amountVal} to "${selectedProject.title}"! Your impact score has increased.`, 'success');
       setSelectedProject(null);
       setDonateAmount('25');
     } catch (err) {

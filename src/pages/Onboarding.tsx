@@ -5,16 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
-import { User, MapPin, Heart, BookOpen, ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
-
-const PRESET_AVATARS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
-];
+import { ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 const SKILL_OPTIONS = ['Programming', 'Math', 'English', 'Spanish', 'Gardening', 'Cooking', 'Driving', 'Heavy Lifting', 'Child Care', 'Elderly Care', 'Marketing', 'Photography', 'First Aid'];
 const INTEREST_OPTIONS = ['Tutoring', 'Volunteer', 'Donations', 'Emergency Response', 'Environment', 'Animals', 'Healthcare', 'Local Events', 'Disaster Relief'];
@@ -24,24 +15,66 @@ export const Onboarding: React.FC = () => {
   const { currentUser, updateProfile } = useApp();
   const navigate = useNavigate();
   
+  const [presetAvatars] = useState(() => {
+    const styles = ['adventurer', 'avataaars', 'bottts', 'fun-emoji', 'lorelei', 'shapes'];
+    return Array.from({ length: 6 }).map((_, idx) => {
+      const randomSeed = Math.random().toString(36).substring(7) + `-${idx}`;
+      const style = styles[idx % styles.length];
+      return `https://api.dicebear.com/7.x/${style}/svg?seed=${randomSeed}`;
+    });
+  });
+
   const [step, setStep] = useState(1);
-  const [avatar, setAvatar] = useState(currentUser?.avatar || PRESET_AVATARS[0]);
+  const [avatar, setAvatar] = useState(currentUser?.avatar || presetAvatars[0]);
   const [name, setName] = useState(currentUser?.name || '');
   const [location, setLocation] = useState(currentUser?.location || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
   
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(currentUser?.skills || []);
+  const [customSkills, setCustomSkills] = useState<string[]>([]);
+  const [customSkillInput, setCustomSkillInput] = useState('');
+
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   
-  const [languages, setLanguages] = useState('English');
-  const [availability, setAvailability] = useState('Saturdays & Weekday evenings');
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(currentUser?.languages || ['English']);
+  
+  const [selectedAvailTypes, setSelectedAvailTypes] = useState<string[]>(['Weekends', 'Weekdays']);
+  const [customAvailability, setCustomAvailability] = useState('');
 
   const toggleItem = (item: string, list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>) => {
     if (list.includes(item)) {
       setList(list.filter(i => i !== item));
     } else {
       setList([...list, item]);
+    }
+  };
+
+  const handleAddCustomSkill = () => {
+    const trimmed = customSkillInput.trim();
+    if (trimmed && !selectedSkills.includes(trimmed)) {
+      setSelectedSkills([...selectedSkills, trimmed]);
+      if (!SKILL_OPTIONS.includes(trimmed) && !customSkills.includes(trimmed)) {
+        setCustomSkills([...customSkills, trimmed]);
+      }
+    }
+    setCustomSkillInput('');
+  };
+
+  const handleAvailToggle = (option: string) => {
+    if (option === 'None') {
+      setSelectedAvailTypes(['None']);
+    } else {
+      let updated = selectedAvailTypes.filter(t => t !== 'None');
+      if (updated.includes(option)) {
+        updated = updated.filter(t => t !== option);
+      } else {
+        updated.push(option);
+      }
+      if (updated.length === 0) {
+        updated = ['None'];
+      }
+      setSelectedAvailTypes(updated);
     }
   };
 
@@ -61,6 +94,16 @@ export const Onboarding: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!currentUser) return;
+
+    let finalAvailability = 'None';
+    if (!selectedAvailTypes.includes('None')) {
+      const parts = selectedAvailTypes.filter(t => t !== 'Other');
+      if (selectedAvailTypes.includes('Other') && customAvailability.trim()) {
+        parts.push(customAvailability.trim());
+      }
+      finalAvailability = parts.length > 0 ? parts.join(', ') : 'None';
+    }
+
     try {
       await updateProfile({
         name,
@@ -70,10 +113,16 @@ export const Onboarding: React.FC = () => {
         skills: selectedSkills,
         interests: selectedInterests,
         categories: selectedCategories,
-        languages: languages.split(',').map(l => l.trim()),
-        availability
+        languages: selectedLanguages,
+        availability: finalAvailability
       });
-      navigate('/feed');
+      if (currentUser?.role === 'admin') {
+        navigate('/admin-dashboard');
+      } else if (currentUser?.role === 'kith') {
+        navigate('/org-dashboard');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error(err);
     }
@@ -126,7 +175,7 @@ export const Onboarding: React.FC = () => {
                   className="w-16 h-16 rounded-2xl border-2 border-brand-blue-500 object-cover shadow-sm"
                 />
                 <div className="grid grid-cols-6 gap-2">
-                  {PRESET_AVATARS.map((av, idx) => (
+                  {presetAvatars.map((av, idx) => (
                     <button
                       key={idx}
                       onClick={() => setAvatar(av)}
@@ -177,17 +226,20 @@ export const Onboarding: React.FC = () => {
         {/* STEP 2: Skills & Background */}
         {step === 2 && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold font-display text-slate-800 dark:text-slate-100">
-              What are your skills?
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Select skills you can share with others (e.g. for mentoring, volunteering, or physical tasks).
-            </p>
+            <div>
+              <h2 className="text-2xl font-bold font-display text-slate-800 dark:text-slate-100">
+                What are your skills?
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Select skills you can share with others (e.g. for mentoring, volunteering, or physical tasks).
+              </p>
+            </div>
 
             <div className="flex flex-wrap gap-2">
-              {SKILL_OPTIONS.map((skill) => (
+              {[...SKILL_OPTIONS, ...customSkills].map((skill) => (
                 <button
                   key={skill}
+                  type="button"
                   onClick={() => toggleItem(skill, selectedSkills, setSelectedSkills)}
                   className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer active-scale ${
                     selectedSkills.includes(skill)
@@ -200,21 +252,113 @@ export const Onboarding: React.FC = () => {
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Languages spoken"
-                type="text"
-                placeholder="English, Spanish"
-                value={languages}
-                onChange={(e) => setLanguages(e.target.value)}
-              />
-              <Input
-                label="General Availability"
-                type="text"
-                placeholder="Weekends, evenings"
-                value={availability}
-                onChange={(e) => setAvailability(e.target.value)}
-              />
+            {/* Custom Skill Input */}
+            <div className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-850/80 space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Add other skills
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Type a custom skill (e.g. Carpentry, Coding)..."
+                  value={customSkillInput}
+                  onChange={(e) => setCustomSkillInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddCustomSkill();
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500 text-slate-800 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomSkill}
+                  className="px-4 py-2 bg-brand-blue-500 hover:bg-brand-blue-600 text-white rounded-xl text-xs font-bold cursor-pointer transition active-scale"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Languages Spoken Dropdown */}
+              <div className="text-left">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  Languages spoken
+                </label>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val && !selectedLanguages.includes(val)) {
+                      setSelectedLanguages([...selectedLanguages, val]);
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-1 focus:ring-brand-blue-500 text-slate-800 dark:text-slate-100 cursor-pointer"
+                >
+                  <option value="" disabled>Select language...</option>
+                  <option value="English">English</option>
+                  <option value="Cebuano">Cebuano</option>
+                  <option value="Tagalog">Tagalog</option>
+                </select>
+                {/* Language Chips */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {selectedLanguages.map((lang) => (
+                    <span
+                      key={lang}
+                      className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-brand-blue-50 dark:bg-brand-blue-900/20 text-brand-blue-600 dark:text-brand-blue-400 border border-brand-blue-100 dark:border-brand-blue-900/30"
+                    >
+                      {lang}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLanguages(selectedLanguages.filter(l => l !== lang))}
+                        className="ml-1.5 text-brand-blue-400 hover:text-brand-blue-650 dark:hover:text-brand-blue-300 font-bold focus:outline-none cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* General Availability Custom Chips/Toggles */}
+              <div className="text-left">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  General Availability
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {['Weekdays', 'Weekends', 'Evenings', 'None', 'Other'].map((opt) => {
+                    const isSelected = selectedAvailTypes.includes(opt);
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => handleAvailToggle(opt)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer active-scale ${
+                          isSelected
+                            ? 'bg-brand-green-500 border-brand-green-500 text-white shadow-sm'
+                            : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Custom Availability Input */}
+                {selectedAvailTypes.includes('Other') && (
+                  <div className="mt-2.5 animate-scale-in">
+                    <input
+                      type="text"
+                      placeholder="Specify availability (e.g. Fridays 10am-12pm)..."
+                      value={customAvailability}
+                      onChange={(e) => setCustomAvailability(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-550 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 rounded-xl text-sm focus:outline-none focus:border-brand-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-1 focus:ring-brand-blue-500 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -19,6 +19,7 @@ import { OrgDashboard } from './pages/OrgDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { UserProfile } from './pages/UserProfile';
 import { Settings } from './pages/Settings';
+import { CreatePost } from './pages/CreatePost';
 
 function App() {
   return (
@@ -125,6 +126,14 @@ function App() {
             element={
               <AppShell>
                 <Settings />
+              </AppShell>
+            }
+          />
+          <Route
+            path="/create-post"
+            element={
+              <AppShell>
+                <CreatePost />
               </AppShell>
             }
           />
